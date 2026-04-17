@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VAYU Agent</string>
+    <string name="accessibility_description">VAYU is an autonomous AI agent that controls your phone. It needs accessibility access to see your screen, tap buttons, type text, and navigate apps to complete tasks you assign.</string>
+    <string name="status_running">Running</string>
+    <string name="status_offline">Offline</string>
+    <string name="hint_task">Type your task…</string>
+    <string name="btn_execute">Execute</string>
+    <string name="btn_stop">Stop</string>
+    <string name="btn_settings">Enable Service</string>
+</resources>
