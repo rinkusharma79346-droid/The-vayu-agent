@@ -15,11 +15,9 @@ workflows:
 
       - name: Generate Gradle Wrapper
         script: |
-          # The gradle-wrapper.jar is missing from repo — generate it using system Gradle
-          # Codemagic Mac machines have Gradle pre-installed
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            gradle wrapper --gradle-version 8.5
-          fi
+          # Unconditionally generate the wrapper — the repo does not contain gradle-wrapper.jar
+          # Gradle is pre-installed on Codemagic macOS machines
+          gradle wrapper --gradle-version 8.5
           chmod +x gradlew
 
       - name: Build Debug APK
