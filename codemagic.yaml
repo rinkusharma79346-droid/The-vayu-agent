@@ -1,0 +1,27 @@
+workflows:
+  android-app:
+    name: VAYU Agent
+    environment:
+      android_signing:
+        - keystore_reference: keystore
+      java: 17
+      groups:
+        - android
+    scripts:
+      - name: Set up local.properties
+        script: echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
+
+      - name: Build Debug APK
+        script: |
+          cd $CM_BUILD_DIR
+          chmod +x gradlew
+          ./gradlew assembleDebug
+    artifacts:
+      - app/build/outputs/apk/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - rinkusharma79346@gmail.com
+        notify:
+          success: true
+          failure: true
