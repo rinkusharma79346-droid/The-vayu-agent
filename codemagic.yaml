@@ -1,23 +1,27 @@
 workflows:
   android-app:
     name: VAYU Agent
+    max_build_duration: 15
+    instance_type: mac_mini_m2
+
     environment:
-      android_signing:
-        - keystore_reference: keystore
       java: 17
-      groups:
-        - android
+      vars:
+        GRADLE_OPTS: "-Xmx2048m"
+
     scripts:
       - name: Set up local.properties
         script: echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
 
+      - name: Make gradlew executable
+        script: chmod +x gradlew
+
       - name: Build Debug APK
-        script: |
-          cd $CM_BUILD_DIR
-          chmod +x gradlew
-          ./gradlew assembleDebug
+        script: ./gradlew assembleDebug
+
     artifacts:
       - app/build/outputs/apk/**/*.apk
+
     publishing:
       email:
         recipients:
