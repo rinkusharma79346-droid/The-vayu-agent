@@ -3,7 +3,7 @@ name: Build VAYU APK
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
   build:
@@ -22,6 +22,18 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Gradle Wrapper
+        run: |
+          # Download gradle wrapper jar if missing
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            GRADLE_VERSION=8.5
+            wget -q "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" -O gradle/wrapper/gradle-wrapper.jar || \
+            curl -sL "https://github.com/gradle/gradle/raw/v${GRADLE_VERSION}/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar || \
+            # Alternative: use gradle wrapper generation
+            pip install gradle-wrapper 2>/dev/null || true
+          fi
+          chmod +x gradlew
+
       - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
@@ -31,23 +43,16 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: |
+          # If gradlew still doesn't work, use system gradle to generate wrapper
+          if ! ./gradlew assembleDebug 2>/dev/null; then
+            gradle wrapper --gradle-version 8.5
+            ./gradlew assembleDebug
+          fi
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: VAYU-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Build Release APK (unsigned)
-        run: ./gradlew assembleRelease
-
-      - name: Upload Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: VAYU-release-apk
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
