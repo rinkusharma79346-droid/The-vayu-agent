@@ -1,0 +1,28 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Gradle
+.gradle/
+build/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
