@@ -13,8 +13,14 @@ workflows:
       - name: Set up local.properties
         script: echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
 
-      - name: Make gradlew executable
-        script: chmod +x gradlew
+      - name: Generate Gradle Wrapper
+        script: |
+          # The gradle-wrapper.jar is missing from repo — generate it using system Gradle
+          # Codemagic Mac machines have Gradle pre-installed
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            gradle wrapper --gradle-version 8.5
+          fi
+          chmod +x gradlew
 
       - name: Build Debug APK
         script: ./gradlew assembleDebug
