@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#6C63FF</color>
+    <color name="primary_dark">#4A42D4</color>
+    <color name="accent">#FF6B6B</color>
+    <color name="bg_dark">#1A1A2E</color>
+    <color name="bg_card">#16213E</color>
+    <color name="text_primary">#EAEAEA</color>
+    <color name="text_secondary">#A0A0B0</color>
+    <color name="status_green">#4CAF50</color>
+    <color name="status_red">#F44336</color>
+    <color name="bubble_user">#6C63FF</color>
+    <color name="bubble_agent">#2A2A4A</color>
+</resources>
