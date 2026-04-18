@@ -191,7 +191,7 @@ class VayuService : AccessibilityService() {
             try {
                 takeScreenshot(DISPLAY_ID, { cmd -> cmd.run() },
                     object : AccessibilityService.TakeScreenshotCallback {
-                        override fun onScreenshot(screenshot: AccessibilityService.ScreenshotResult) {
+                        override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
                             try {
                                 val hwBuffer = screenshot.hardwareBuffer
                                 val cs = screenshot.colorSpace
