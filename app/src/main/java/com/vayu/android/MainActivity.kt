@@ -2,6 +2,7 @@ package com.vayu.android
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -16,9 +17,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
-/**
- * VAYU Main Activity — Chat-style UI for interacting with the agent.
- */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var statusIndicator: View
@@ -32,7 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var brainStatusText: TextView
 
     private val handler = Handler(Looper.getMainLooper())
-    private val statusRefreshInterval = 3000L
+    private val statusRefreshInterval = 2000L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +39,7 @@ class MainActivity : AppCompatActivity() {
         initViews()
         setupListeners()
         startStatusRefresh()
+        requestOverlayPermission()
     }
 
     override fun onResume() {
@@ -79,23 +78,34 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
+            if (!Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Allow overlay permission for VAYU indicator", Toast.LENGTH_LONG).show()
+                requestOverlayPermission()
+            }
+
             addMessage("You: $task", isUser = true)
             val success = BrainClient.submitTask(task)
             if (success) {
-                addMessage("VAYU: Task accepted — starting execution...", isUser = false)
+                addMessage("VAYU: Task accepted - starting execution...", isUser = false)
                 taskInput.text.clear()
             } else {
-                addMessage("VAYU: Failed to submit task — is the brain server running?", isUser = false)
+                addMessage("VAYU: Failed to submit task - is the brain server running?", isUser = false)
             }
         }
 
         btnStop.setOnClickListener {
-            VayuService.stopRequested = true
-            addMessage("VAYU: Stop requested — finishing current step...", isUser = false)
+            VayuService.immediateStop()
+            addMessage("VAYU: STOPPED immediately", isUser = false)
         }
+    }
 
-        btnSettings.setOnClickListener {
-            openAccessibilitySettings()
+    private fun requestOverlayPermission() {
+        if (!Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
         }
     }
 
@@ -119,7 +129,7 @@ class MainActivity : AppCompatActivity() {
                 statusIndicator.setBackgroundResource(R.drawable.status_dot_green)
                 when (status) {
                     "EXECUTING" -> {
-                        statusText.text = "Step $step/30 — ${task.take(30)}"
+                        statusText.text = "Step $step/30 - ${task.take(30)}"
                         btnStop.visibility = View.VISIBLE
                     }
                     "DONE" -> {
@@ -130,6 +140,10 @@ class MainActivity : AppCompatActivity() {
                     "FAIL" -> {
                         statusText.text = "Task Failed"
                         addMessage("VAYU: Task failed. Check logs.", isUser = false)
+                        btnStop.visibility = View.GONE
+                    }
+                    "STOPPED" -> {
+                        statusText.text = "Stopped"
                         btnStop.visibility = View.GONE
                     }
                     else -> {
