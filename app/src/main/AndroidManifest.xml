@@ -14,6 +14,7 @@
 
     <!-- Wake lock (prevents phone sleeping during tasks) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".VayuApp"
