@@ -8,13 +8,11 @@ Matches the APK's actual protocol:
     POST /task/result   → Report task completion/failure
     GET  /health        → Health check
 
-Model: microsoft/phi-4-multimodal-instruct (vision-capable)
-API:   NVIDIA Playground (OpenAI-compatible)
-       POST https://integrate.api.nvidia.com/v1/chat/completions
-
-CRITICAL: Content format must be:
-  - Plain STRING when no screenshot (array format causes HTTP 403 on phi-4)
-  - ARRAY format only when screenshot is included
+CRITICAL FIXES in this version:
+1. Flask runs with threaded=True — /act (30-90s NVIDIA API call) no longer blocks
+   health checks and task/pending polling
+2. Better logging for every endpoint call
+3. Model configurable via NVIDIA_MODEL env var
 """
 
 import os
@@ -42,9 +40,7 @@ except ImportError:
 
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-# Model selection — change via env var or edit here
-# Options: llama-90b-vision (best), llama-11b-vision (fast), phi-4 (basic)
-NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.2-90b-vision-instruct")
+NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-4-maverick-17b-128e-instruct")
 
 MAX_STEPS = 30
 MAX_TOKENS = 1024
@@ -52,7 +48,7 @@ TEMPERATURE = 0.2
 PORT = 8082
 
 # ═══════════════════════════════════════════════════════════════════
-# SYSTEM PROMPT — Must match APK's expected action format
+# SYSTEM PROMPT
 # ═══════════════════════════════════════════════════════════════════
 
 SYSTEM_PROMPT = """You are VAYU, an autonomous AI agent controlling an Android phone.
@@ -128,8 +124,8 @@ lock = threading.Lock()
 def call_nvidia_api(system_prompt, context_text, screenshot_b64=None):
     """
     Call NVIDIA API with proper content format:
-      - No screenshot → content is a plain STRING (array format causes 403)
-      - With screenshot → content is an ARRAY with text + image_url
+      - No screenshot -> content is a plain STRING (array format causes 403)
+      - With screenshot -> content is an ARRAY with text + image_url
     """
     if not NVIDIA_API_KEY:
         return None, "NVIDIA_API_KEY environment variable is not set"
@@ -146,7 +142,6 @@ def call_nvidia_api(system_prompt, context_text, screenshot_b64=None):
             }
         ]
     else:
-        # CRITICAL: plain string when no screenshot (array format causes 403)
         user_content = context_text
 
     payload = {
@@ -165,6 +160,9 @@ def call_nvidia_api(system_prompt, context_text, screenshot_b64=None):
     }
 
     try:
+        print(f"[API] Calling {NVIDIA_MODEL}...")
+        t0 = time.time()
+
         if HAS_REQUESTS:
             resp = req_lib.post(
                 NVIDIA_BASE_URL,
@@ -191,13 +189,22 @@ def call_nvidia_api(system_prompt, context_text, screenshot_b64=None):
                     return self._data
             resp = UrllibResp(resp_obj)
 
+        elapsed = time.time() - t0
+        print(f"[API] Response in {elapsed:.1f}s — HTTP {resp.status_code}")
+
         if resp.status_code != 200:
             error_text = resp.text if hasattr(resp, 'text') else str(resp.status_code)
-            print(f"[API] HTTP {resp.status_code}: {error_text[:500]}")
+            print(f"[API] ERROR: {error_text[:500]}")
             return None, f"HTTP {resp.status_code}: {error_text[:200]}"
 
         data = resp.json()
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        if content:
+            print(f"[API] Response: {content[:150]}...")
+        else:
+            print(f"[API] WARNING: Empty response content")
+
         return content, None
 
     except Exception as e:
@@ -250,17 +257,15 @@ def extract_json(text):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# CONTEXT BUILDER — Format the UI tree + screen info for the model
+# CONTEXT BUILDER
 # ═══════════════════════════════════════════════════════════════════
 
 def build_context(goal, ui_tree, history, screen_info):
     """Build the text context sent to the model alongside the screenshot."""
     parts = []
 
-    # Task
     parts.append(f"TASK: {goal}")
 
-    # Screen info
     if screen_info:
         w = screen_info.get("width", "?")
         h = screen_info.get("height", "?")
@@ -268,10 +273,9 @@ def build_context(goal, ui_tree, history, screen_info):
         orientation = screen_info.get("orientation", "?")
         parts.append(f"SCREEN: {w}x{h} @ {dpi}dpi ({orientation})")
 
-    # UI Tree (formatted for readability)
     if ui_tree and len(ui_tree) > 0:
         parts.append("UI ELEMENTS ON SCREEN:")
-        for i, node in enumerate(ui_tree[:50]):  # Cap at 50 nodes
+        for i, node in enumerate(ui_tree[:50]):
             cls = node.get("class", "View")
             text = node.get("text", "")
             desc = node.get("desc", "")
@@ -287,7 +291,6 @@ def build_context(goal, ui_tree, history, screen_info):
             else:
                 parts.append(f"  [{i}] {cls} {bounds} {flags}")
 
-    # History (last 5 actions)
     if history and len(history) > 0:
         parts.append("RECENT ACTIONS:")
         for h in history[-5:]:
@@ -354,10 +357,11 @@ def task_submit():
 
 @app.route("/task/pending", methods=["GET"])
 def task_pending():
-    """Poll for the next pending task (called by VayuService every 2 seconds)."""
+    """Poll for the next pending task."""
     with lock:
         if task_queue:
             task = task_queue.pop(0)
+            print(f"[Poll] Serving task #{task['id']}: {task['task']}")
             return jsonify({"task": task["task"], "id": task["id"]})
 
     return jsonify({"task": None})
@@ -388,19 +392,6 @@ def act():
     """
     Core endpoint — called by VayuService with screenshot + UI tree.
     Returns the next action to execute.
-
-    Expected request format:
-    {
-        "goal": "Open YouTube",
-        "screenshot": "base64_jpeg_string",
-        "ui_tree": [...],
-        "history": [...],
-        "screen_info": {"width": 1080, "height": 2400, ...}
-    }
-
-    Returns action in APK format:
-    {"action": "TAP", "x": 500, "y": 300}
-    {"action": "DONE", "reason": "Task completed"}
     """
     data = request.get_json(force=True) if request.is_json else {}
 
@@ -433,7 +424,6 @@ def act():
     parsed = extract_json(response_text)
 
     if parsed and isinstance(parsed, dict):
-        # Validate action type
         action = parsed.get("action", "").upper()
         valid_actions = [
             "TAP", "LONG_PRESS", "SWIPE", "SCROLL", "TYPE",
@@ -445,10 +435,9 @@ def act():
             print(f"[Act] Invalid action '{action}' — returning FAIL")
             return jsonify({"action": "FAIL", "reason": f"Invalid action: {action}"})
 
-        # Ensure action is uppercase (model sometimes returns lowercase)
         parsed["action"] = action
 
-        print(f"[Act] → {action}: {json.dumps(parsed)[:100]}")
+        print(f"[Act] -> {action}: {json.dumps(parsed)[:100]}")
         return jsonify(parsed)
     else:
         print(f"[Act] Could not parse JSON: {response_text[:200]}")
@@ -481,6 +470,8 @@ if __name__ == "__main__":
     print(f"║  API Key: {'***' + NVIDIA_API_KEY[-6:] if len(NVIDIA_API_KEY) > 6 else 'SET':<44}║")
     print("║  Endpoints: /act, /task/pending, /task/submit,         ║")
     print("║             /task/result, /health                       ║")
+    print("║  Mode: THREADED (concurrent requests supported)         ║")
     print("╚══════════════════════════════════════════════════════════╝")
 
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    # CRITICAL: threaded=True so /act doesn't block /health and /task/pending
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

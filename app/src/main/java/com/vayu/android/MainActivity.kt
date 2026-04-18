@@ -84,18 +84,18 @@ class MainActivity : AppCompatActivity() {
             }
 
             addMessage("You: $task", isUser = true)
-            val success = BrainClient.submitTask(task)
-            if (success) {
-                addMessage("VAYU: Task accepted - starting execution...", isUser = false)
-                taskInput.text.clear()
-            } else {
-                addMessage("VAYU: Failed to submit task - is the brain server running?", isUser = false)
-            }
+
+            // CRITICAL FIX: Direct task trigger to VayuService
+            // This bypasses the brain server polling — VayuService picks it up immediately
+            VayuService.submitDirectTask(task)
+
+            addMessage("VAYU: Task submitted — starting execution...", isUser = false)
+            taskInput.text.clear()
         }
 
         btnStop.setOnClickListener {
             VayuService.stopRequested.set(true)
-            addMessage("VAYU: STOPPED immediately", isUser = false)
+            addMessage("VAYU: STOP requested", isUser = false)
         }
     }
 
@@ -135,15 +135,20 @@ class MainActivity : AppCompatActivity() {
                     "DONE" -> {
                         statusText.text = "Task Complete"
                         addMessage("VAYU: Task complete!", isUser = false)
+                        // Reset status after showing
+                        VayuService.currentStatus = "IDLE"
                         btnStop.visibility = View.GONE
                     }
                     "FAIL" -> {
                         statusText.text = "Task Failed"
                         addMessage("VAYU: Task failed. Check logs.", isUser = false)
+                        // Reset status after showing so it doesn't keep showing
+                        VayuService.currentStatus = "IDLE"
                         btnStop.visibility = View.GONE
                     }
                     "STOPPED" -> {
                         statusText.text = "Stopped"
+                        VayuService.currentStatus = "IDLE"
                         btnStop.visibility = View.GONE
                     }
                     else -> {
@@ -157,6 +162,7 @@ class MainActivity : AppCompatActivity() {
                 btnStop.visibility = View.GONE
             }
 
+            // Check brain health on background thread
             Thread {
                 val healthy = BrainClient.checkHealth()
                 runOnUiThread {

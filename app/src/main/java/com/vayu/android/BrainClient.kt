@@ -18,8 +18,8 @@ object BrainClient {
     private const val MAX_RETRIES = 3
 
     fun getPendingTask(): JSONObject? {
-        return retryCall {
-            val conn = createConnection("GET", "/task/pending")
+        return try {
+            val conn = createConnection("GET", "/task/pending", connectTimeout = 3000, readTimeout = 3000)
             try {
                 val response = readResponse(conn)
                 if (conn.responseCode == 200) {
@@ -29,27 +29,26 @@ object BrainClient {
             } finally {
                 conn.disconnect()
             }
+        } catch (e: Exception) {
+            // Don't log every poll failure — too noisy
+            null
         }
     }
 
     fun submitTask(task: String): Boolean {
-        // MUST run on background thread — Android throws NetworkOnMainThreadException
         return try {
             val latch = java.util.concurrent.CountDownLatch(1)
             val result = arrayOf(false)
             Thread {
                 try {
-                    val success = retryCall(defaultValue = false) {
-                        val body = JSONObject().put("task", task)
-                        val conn = createConnection("POST", "/task/submit")
-                        try {
-                            writeBody(conn, body.toString())
-                            conn.responseCode == 200
-                        } finally {
-                            conn.disconnect()
-                        }
-                    } ?: false
-                    result[0] = success
+                    val body = JSONObject().put("task", task)
+                    val conn = createConnection("POST", "/task/submit", connectTimeout = 3000, readTimeout = 5000)
+                    try {
+                        writeBody(conn, body.toString())
+                        result[0] = conn.responseCode == 200
+                    } finally {
+                        conn.disconnect()
+                    }
                 } catch (e: Exception) {
                     android.util.Log.e("VAYU", "submitTask error: ${e.message}")
                 } finally {
@@ -86,6 +85,7 @@ object BrainClient {
                 if (conn.responseCode == 200) {
                     JSONObject(response)
                 } else {
+                    android.util.Log.e("VAYU", "/act returned ${conn.responseCode}: ${response.take(200)}")
                     null
                 }
             } finally {
@@ -95,18 +95,20 @@ object BrainClient {
     }
 
     fun reportResult(taskId: Int, status: String, reason: String) {
-        retryCall(defaultValue = Unit) {
+        try {
             val body = JSONObject().apply {
                 put("task_id", taskId)
                 put("status", status)
                 put("reason", reason)
             }
-            val conn = createConnection("POST", "/task/result")
+            val conn = createConnection("POST", "/task/result", connectTimeout = 3000, readTimeout = 3000)
             try {
                 writeBody(conn, body.toString())
             } finally {
                 conn.disconnect()
             }
+        } catch (e: Exception) {
+            android.util.Log.e("VAYU", "reportResult error: ${e.message}")
         }
     }
 
