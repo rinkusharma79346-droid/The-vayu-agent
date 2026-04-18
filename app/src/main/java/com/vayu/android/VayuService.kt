@@ -7,17 +7,16 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
-import androidx.annotation.RequiresApi
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class VayuService : AccessibilityService() {
 
@@ -26,19 +25,22 @@ class VayuService : AccessibilityService() {
         private const val NOTIFICATION_CHANNEL_ID = "vayu_service"
         private const val NOTIFICATION_ID = 1001
         private const val MAX_STEPS = 30
-        private const val POLL_INTERVAL = 2000L
-        private const val SCREENSHOT_DELAY = 1500L
-        private const val DISPLAY_ID = 0  // Default display
+        private const val POLL_INTERVAL = 1500L
+        private const val SCREENSHOT_DELAY = 800L
+        private const val DISPLAY_ID = 0
 
         @Volatile var isRunning = false; private set
         @Volatile var currentStatus = "IDLE"; private set
         @Volatile var currentStep = 0; private set
         @Volatile var currentTaskDescription = ""; private set
-        @Volatile var stopRequested = false
+
+        val stopRequested = AtomicBoolean(false)
+
         var statusListener: ((String, Int, String) -> Unit)? = null
     }
 
     private var pollThread: Thread? = null
+    private var executionThread: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var isExecuting = false
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -61,6 +63,7 @@ class VayuService : AccessibilityService() {
         isRunning = false
         currentStatus = "STOPPED"
         stopPolling()
+        killExecution()
         releaseWakeLock()
         notifyStatus("STOPPED", 0, "")
     }
@@ -72,7 +75,7 @@ class VayuService : AccessibilityService() {
         pollThread = Thread({
             while (!Thread.currentThread().isInterrupted && isRunning) {
                 try {
-                    if (!isExecuting) {
+                    if (!isExecuting && !stopRequested.get()) {
                         val task = BrainClient.getPendingTask()
                         if (task != null) {
                             val taskDesc = task.optString("task", "")
@@ -100,71 +103,63 @@ class VayuService : AccessibilityService() {
         pollThread = null
     }
 
+    fun immediateStop() {
+        Log.d(TAG, "IMMEDIATE STOP requested")
+        stopRequested.set(true)
+        executionThread?.interrupt()
+    }
+
+    private fun killExecution() {
+        executionThread?.interrupt()
+        executionThread = null
+    }
+
     private fun executeTask(taskId: Int, goal: String) {
         isExecuting = true
         currentTaskDescription = goal
-        stopRequested = false
+        stopRequested.set(false)
         updateNotification("Executing: ${goal.take(40)}")
         notifyStatus("EXECUTING", 0, goal)
+        FloatingIndicator.show(this, "Working...")
 
         val history = JSONArray()
 
-        Thread {
+        executionThread = Thread({
             try {
                 for (step in 1..MAX_STEPS) {
-                    if (stopRequested) {
+                    if (stopRequested.get()) {
+                        Log.d(TAG, "STOPPED by user at step $step")
+                        BrainClient.reportResult(taskId, "FAIL", "Stopped by user")
+                        notifyStatus("STOPPED", step, goal)
+                        break
+                    }
+
+                    currentStep = step
+                    notifyStatus("EXECUTING", step, goal)
+
+                    try { Thread.sleep(SCREENSHOT_DELAY) } catch (_: InterruptedException) {
                         BrainClient.reportResult(taskId, "FAIL", "Stopped by user")
                         break
                     }
-                    currentStep = step
-                    notifyStatus("EXECUTING", step, goal)
-                    Thread.sleep(SCREENSHOT_DELAY)
 
-                    // Capture screenshot
                     val screenshotB64 = captureScreenshot()
                     if (screenshotB64.isEmpty()) {
-                        Log.w(TAG, "Screenshot empty, retrying...")
-                        Thread.sleep(2000)
+                        Log.w(TAG, "Screenshot empty at step $step")
+                        try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
                         continue
                     }
 
-                    // Build UI tree
-                    val rootNode = rootInActiveWindow
-                    val uiTree = UiTreeBuilder.build(rootNode)
-                    rootNode?.recycle()
-
-                    // Ask brain for next action
-                    val action = BrainClient.sendToBrain(goal, screenshotB64, uiTree, history)
-                    if (action == null) {
-                        Log.e(TAG, "Brain returned null")
-                        Thread.sleep(3000)
-                        continue
-                    }
-
-                    val actionType = action.optString("action", "").uppercase()
-                    Log.d(TAG, "Step $step: $actionType")
-
-                    if (actionType == "DONE") {
-                        BrainClient.reportResult(taskId, "DONE", action.optString("reason", "Done"))
-                        notifyStatus("DONE", step, goal)
-                        break
-                    }
-                    if (actionType == "FAIL") {
-                        BrainClient.reportResult(taskId, "FAIL", action.optString("reason", "Failed"))
-                        notifyStatus("FAIL", step, goal)
-                        break
-                    }
-
-                    // Execute the action
-                    val delay = ActionExecutor.execute(this, action)
-                    Thread.sleep(delay)
-                    history.put(action)
+                    if (processStep(taskId, goal, screenshotB64, history, step) == null) break
                 }
 
-                if (currentStep >= MAX_STEPS && !stopRequested) {
+                if (currentStep >= MAX_STEPS && !stopRequested.get()) {
                     BrainClient.reportResult(taskId, "FAIL", "Max steps reached")
                     notifyStatus("FAIL", MAX_STEPS, goal)
                 }
+            } catch (e: InterruptedException) {
+                Log.d(TAG, "Execution interrupted - stopped by user")
+                BrainClient.reportResult(taskId, "FAIL", "Stopped by user")
+                notifyStatus("STOPPED", currentStep, goal)
             } catch (e: Exception) {
                 Log.e(TAG, "Task error: ${e.message}", e)
                 BrainClient.reportResult(taskId, "FAIL", "Error: ${e.message}")
@@ -173,15 +168,48 @@ class VayuService : AccessibilityService() {
                 isExecuting = false
                 currentTaskDescription = ""
                 currentStep = 0
+                stopRequested.set(false)
                 updateNotification("VAYU is ready")
+                FloatingIndicator.hide(this)
             }
-        }.start()
+        }, "VAYU-Exec")
+        executionThread?.start()
     }
 
-    /**
-     * Capture screenshot synchronously using CountDownLatch.
-     * takeScreenshot() must be called on the main thread.
-     */
+    private fun processStep(taskId: Int, goal: String, screenshotB64: String, history: JSONArray, step: Int): Boolean? {
+        if (stopRequested.get()) return null
+
+        val rootNode = rootInActiveWindow
+        val uiTree = UiTreeBuilder.build(rootNode)
+        rootNode?.recycle()
+
+        val action = BrainClient.sendToBrain(goal, screenshotB64, uiTree, history)
+        if (action == null) {
+            Log.e(TAG, "Brain returned null at step $step")
+            return true
+        }
+
+        val actionType = action.optString("action", "").uppercase()
+        Log.d(TAG, "Step $step: $actionType -> $action")
+
+        if (actionType == "DONE") {
+            BrainClient.reportResult(taskId, "DONE", action.optString("reason", "Done"))
+            notifyStatus("DONE", step, goal)
+            return null
+        }
+        if (actionType == "FAIL") {
+            BrainClient.reportResult(taskId, "FAIL", action.optString("reason", "Failed"))
+            notifyStatus("FAIL", step, goal)
+            return null
+        }
+
+        val delay = ActionExecutor.execute(this, action)
+        if (stopRequested.get()) return null
+        try { Thread.sleep(delay) } catch (_: InterruptedException) { return null }
+        history.put(action)
+        return true
+    }
+
     private fun captureScreenshot(): String {
         val latch = CountDownLatch(1)
         val result = arrayOf("")
@@ -214,7 +242,7 @@ class VayuService : AccessibilityService() {
             }
         }
 
-        latch.await(5, TimeUnit.SECONDS)
+        latch.await(3, TimeUnit.SECONDS)
         return result[0]
     }
 
