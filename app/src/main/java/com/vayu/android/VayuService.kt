@@ -182,7 +182,6 @@ class VayuService : AccessibilityService() {
      * Capture screenshot synchronously using CountDownLatch.
      * takeScreenshot() must be called on the main thread.
      */
-    @RequiresApi(Build.VERSION_CODES.R)
     private fun captureScreenshot(): String {
         val latch = CountDownLatch(1)
         val result = arrayOf("")
@@ -197,7 +196,6 @@ class VayuService : AccessibilityService() {
                                 val cs = screenshot.colorSpace
                                 result[0] = ScreenCapture.processScreenshot(hwBuffer, cs)
                                 hwBuffer.close()
-                                screenshot.hardwareBuffer.close()
                             } catch (e: Exception) {
                                 Log.e(TAG, "Process screenshot error: ${e.message}")
                             } finally {
