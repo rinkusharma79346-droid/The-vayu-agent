@@ -8,8 +8,8 @@ import java.io.ByteArrayOutputStream
 
 object ScreenCapture {
 
-    private const val MAX_DIMENSION = 720
-    private const val JPEG_QUALITY = 40
+    private const val MAX_DIMENSION = 1080
+    private const val JPEG_QUALITY = 60
 
     fun processScreenshot(hardwareBuffer: HardwareBuffer, colorSpace: ColorSpace?): String {
         val hardwareBitmap = Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace) ?: return ""
