@@ -42,7 +42,7 @@ object BrainClient {
             } finally {
                 conn.disconnect()
             }
-        }
+        } ?: false
     }
 
     fun sendToBrain(
@@ -140,7 +140,7 @@ object BrainClient {
         return response.toString()
     }
 
-    private fun <T> retryCall(defaultValue: T? = null, maxRetries: Int = MAX_RETRIES, block: () -> T?): T? {
+    private fun <T : Any> retryCall(defaultValue: T? = null, maxRetries: Int = MAX_RETRIES, block: () -> T?): T? {
         var lastException: Exception? = null
         for (i in 0 until maxRetries) {
             try {
