@@ -94,7 +94,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnStop.setOnClickListener {
-            VayuService.immediateStop()
+            VayuService.stopRequested.set(true)
             addMessage("VAYU: STOPPED immediately", isUser = false)
         }
     }
