@@ -12,7 +12,7 @@ import java.net.URL
  */
 object BrainClient {
 
-    private const val BASE_URL = "http://localhost:8082"
+    private const val BASE_URL = "http://127.0.0.1:8082"
     private const val CONNECT_TIMEOUT = 5000
     private const val READ_TIMEOUT = 90000
     private const val MAX_RETRIES = 3
