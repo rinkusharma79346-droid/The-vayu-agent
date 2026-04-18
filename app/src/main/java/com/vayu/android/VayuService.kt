@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import androidx.annotation.RequiresApi
 import org.json.JSONArray
@@ -21,14 +22,6 @@ import java.util.concurrent.TimeUnit
 
 /**
  * VAYU Accessibility Service — The "hands" of the autonomous agent.
- *
- * Runs in the foreground (won't be killed by Android) and:
- *   1. Polls the brain server for tasks via GET /task/pending
- *   2. Executes a ReAct loop: screenshot -> brain -> action -> repeat
- *   3. Captures screenshots via takeScreenshot()
- *   4. Sends them to the brain via POST /act
- *   5. Executes the returned action (tap, type, swipe, etc.)
- *   6. Reports results back via POST /task/result
  */
 class VayuService : AccessibilityService() {
 
@@ -67,10 +60,6 @@ class VayuService : AccessibilityService() {
     private var isExecuting = false
     private val serviceHandler = Handler(Looper.getMainLooper())
 
-    // ─────────────────────────────────────────────────────
-    // Service Lifecycle
-    // ─────────────────────────────────────────────────────
-
     override fun onServiceConnected() {
         super.onServiceConnected()
         isRunning = true
@@ -100,10 +89,6 @@ class VayuService : AccessibilityService() {
     override fun onInterrupt() {
         Log.d(TAG, "VAYU service interrupted")
     }
-
-    // ─────────────────────────────────────────────────────
-    // Task Polling
-    // ─────────────────────────────────────────────────────
 
     private fun startPolling() {
         pollThread = Thread({
@@ -138,10 +123,6 @@ class VayuService : AccessibilityService() {
         pollThread = null
     }
 
-    // ─────────────────────────────────────────────────────
-    // Task Execution — ReAct Loop
-    // ─────────────────────────────────────────────────────
-
     private fun executeTask(taskId: Int, goal: String) {
         isExecuting = true
         currentTaskDescription = goal
@@ -163,10 +144,8 @@ class VayuService : AccessibilityService() {
                     currentStep = step
                     notifyStatus("EXECUTING", step, goal)
 
-                    // Wait for UI to settle
                     Thread.sleep(SCREENSHOT_DELAY)
 
-                    // Take screenshot (synchronous via CountDownLatch)
                     val screenshotB64 = captureScreenshotSync()
                     if (screenshotB64.isEmpty()) {
                         Log.e(TAG, "Failed to capture screenshot, retrying...")
@@ -174,12 +153,10 @@ class VayuService : AccessibilityService() {
                         continue
                     }
 
-                    // Build UI tree
                     val rootNode = rootInActiveWindow
                     val uiTree = UiTreeBuilder.build(rootNode)
                     rootNode?.recycle()
 
-                    // Send to brain
                     val action = BrainClient.sendToBrain(goal, screenshotB64, uiTree, history)
                     if (action == null) {
                         Log.e(TAG, "Brain returned null, retrying...")
@@ -187,11 +164,9 @@ class VayuService : AccessibilityService() {
                         continue
                     }
 
-                    // Parse action
                     val actionType = action.optString("action", "").uppercase()
                     Log.d(TAG, "Step $step: $actionType")
 
-                    // Check completion
                     if (actionType == "DONE") {
                         val reason = action.optString("reason", "Task completed")
                         Log.d(TAG, "Task DONE: $reason")
@@ -208,11 +183,9 @@ class VayuService : AccessibilityService() {
                         break
                     }
 
-                    // Execute action
                     val delay = ActionExecutor.execute(this, action)
                     Thread.sleep(delay)
 
-                    // Add to history
                     history.put(action)
                 }
 
@@ -234,10 +207,6 @@ class VayuService : AccessibilityService() {
         }.start()
     }
 
-    // ─────────────────────────────────────────────────────
-    // Screenshot Capture — FIXED (synchronous via latch)
-    // ─────────────────────────────────────────────────────
-
     @RequiresApi(Build.VERSION_CODES.R)
     private fun captureScreenshotSync(): String {
         val latch = CountDownLatch(1)
@@ -245,40 +214,39 @@ class VayuService : AccessibilityService() {
 
         serviceHandler.post {
             try {
-                takeScreenshot(Display.DEFAULT_DISPLAY, { cmd -> cmd.run() }, object : TakeScreenshotCallback {
-                    override fun onScreenshot(screenshot: ScreenshotResult) {
-                        try {
-                            val hardwareBuffer = screenshot.hardwareBuffer
-                            val colorSpace = screenshot.colorSpace
-                            result = ScreenCapture.processScreenshot(hardwareBuffer, colorSpace)
-                            hardwareBuffer.close()
-                            screenshot.hardwareBuffer.close()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Screenshot processing error: ${e.message}")
-                        } finally {
+                takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    { cmd -> cmd.run() },
+                    object : TakeScreenshotCallback {
+                        override fun onScreenshot(screenshot: ScreenshotResult) {
+                            try {
+                                val hardwareBuffer = screenshot.hardwareBuffer
+                                val colorSpace = screenshot.colorSpace
+                                result = ScreenCapture.processScreenshot(hardwareBuffer, colorSpace)
+                                hardwareBuffer.close()
+                                screenshot.hardwareBuffer.close()
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Screenshot processing error: ${e.message}")
+                            } finally {
+                                latch.countDown()
+                            }
+                        }
+
+                        override fun onFailure(errorCode: Int) {
+                            Log.e(TAG, "Screenshot failed with code: $errorCode")
                             latch.countDown()
                         }
                     }
-
-                    override fun onFailure(errorCode: Int) {
-                        Log.e(TAG, "Screenshot failed with code: $errorCode")
-                        latch.countDown()
-                    }
-                })
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Screenshot take error: ${e.message}")
                 latch.countDown()
             }
         }
 
-        // Wait up to 5 seconds for screenshot
         latch.await(5, TimeUnit.SECONDS)
         return result
     }
-
-    // ─────────────────────────────────────────────────────
-    // Foreground Service & Notification
-    // ─────────────────────────────────────────────────────
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
@@ -315,10 +283,6 @@ class VayuService : AccessibilityService() {
         } catch (_: Exception) {}
     }
 
-    // ─────────────────────────────────────────────────────
-    // WakeLock
-    // ─────────────────────────────────────────────────────
-
     private fun acquireWakeLock() {
         try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -335,10 +299,6 @@ class VayuService : AccessibilityService() {
             wakeLock = null
         } catch (_: Exception) {}
     }
-
-    // ─────────────────────────────────────────────────────
-    // Status
-    // ─────────────────────────────────────────────────────
 
     private fun notifyStatus(status: String, step: Int, task: String) {
         currentStatus = status
