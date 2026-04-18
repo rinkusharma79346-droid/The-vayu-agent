@@ -1,26 +1,23 @@
 package com.vayu.android
 
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
-import android.widget.*
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 /**
  * VAYU Main Activity — Chat-style UI for interacting with the agent.
- *
- * Features:
- *   - Chat-style message display (agent thoughts + user commands)
- *   - Task input field + Execute button
- *   - Stop button to cancel running tasks
- *   - Service status indicator (RUNNING / OFFLINE)
- *   - Brain server health check
- *   - One-click accessibility settings shortcut
  */
 class MainActivity : AppCompatActivity() {
 
@@ -56,10 +53,6 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacksAndMessages(null)
     }
 
-    // ─────────────────────────────────────────────────────
-    // View Initialization
-    // ─────────────────────────────────────────────────────
-
     private fun initViews() {
         statusIndicator = findViewById(R.id.statusIndicator)
         statusText = findViewById(R.id.statusText)
@@ -73,7 +66,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        // Execute button — submit task to brain server
         btnExecute.setOnClickListener {
             val task = taskInput.text.toString().trim()
             if (task.isEmpty()) {
@@ -87,31 +79,25 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            addMessage("👤 $task", isUser = true)
+            addMessage("You: $task", isUser = true)
             val success = BrainClient.submitTask(task)
             if (success) {
-                addMessage("🤖 Task accepted — starting execution...", isUser = false)
+                addMessage("VAYU: Task accepted — starting execution...", isUser = false)
                 taskInput.text.clear()
             } else {
-                addMessage("⚠️ Failed to submit task — is the brain server running?", isUser = false)
+                addMessage("VAYU: Failed to submit task — is the brain server running?", isUser = false)
             }
         }
 
-        // Stop button — cancel running task
         btnStop.setOnClickListener {
             VayuService.stopRequested = true
-            addMessage("⏹️ Stop requested — finishing current step...", isUser = false)
+            addMessage("VAYU: Stop requested — finishing current step...", isUser = false)
         }
 
-        // Settings button — open accessibility settings
         btnSettings.setOnClickListener {
             openAccessibilitySettings()
         }
     }
-
-    // ─────────────────────────────────────────────────────
-    // Status Refresh
-    // ─────────────────────────────────────────────────────
 
     private fun startStatusRefresh() {
         handler.postDelayed(object : Runnable {
@@ -123,7 +109,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshStatus() {
-        // Check accessibility service status
         val isServiceRunning = VayuService.isRunning
         val status = VayuService.currentStatus
         val step = VayuService.currentStep
@@ -138,13 +123,13 @@ class MainActivity : AppCompatActivity() {
                         btnStop.visibility = View.VISIBLE
                     }
                     "DONE" -> {
-                        statusText.text = "Task Complete ✓"
-                        addMessage("✅ Task complete!", isUser = false)
+                        statusText.text = "Task Complete"
+                        addMessage("VAYU: Task complete!", isUser = false)
                         btnStop.visibility = View.GONE
                     }
                     "FAIL" -> {
-                        statusText.text = "Task Failed ✗"
-                        addMessage("❌ Task failed. Check logs.", isUser = false)
+                        statusText.text = "Task Failed"
+                        addMessage("VAYU: Task failed. Check logs.", isUser = false)
                         btnStop.visibility = View.GONE
                     }
                     else -> {
@@ -158,7 +143,6 @@ class MainActivity : AppCompatActivity() {
                 btnStop.visibility = View.GONE
             }
 
-            // Check brain server health
             Thread {
                 val healthy = BrainClient.checkHealth()
                 runOnUiThread {
@@ -171,10 +155,6 @@ class MainActivity : AppCompatActivity() {
             }.start()
         }
     }
-
-    // ─────────────────────────────────────────────────────
-    // Chat Messages
-    // ─────────────────────────────────────────────────────
 
     private fun addMessage(text: String, isUser: Boolean) {
         val textView = TextView(this).apply {
@@ -196,7 +176,7 @@ class MainActivity : AppCompatActivity() {
             ).apply {
                 topMargin = 8
                 bottomMargin = 8
-                gravity = if (isUser) android.view.Gravity.END else android.view.Gravity.START
+                gravity = if (isUser) Gravity.END else Gravity.START
             }
             layoutParams = params
         }
@@ -205,12 +185,7 @@ class MainActivity : AppCompatActivity() {
         scrollContainer.post { scrollContainer.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 
-    // ─────────────────────────────────────────────────────
-    // Accessibility Service Check
-    // ─────────────────────────────────────────────────────
-
     private fun isAccessibilityEnabled(): Boolean {
-        val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as android.view.accessibility.AccessibilityManager
         val enabledServices = Settings.Secure.getString(
             contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
