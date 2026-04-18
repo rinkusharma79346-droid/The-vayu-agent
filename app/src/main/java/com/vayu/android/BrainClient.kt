@@ -9,26 +9,14 @@ import java.net.URL
 
 /**
  * HTTP client for communicating with the brain server (brain_nvidia.py).
- *
- * Endpoints:
- *   GET  /task/pending  → Poll for new tasks
- *   POST /task/submit   → Submit task from UI
- *   POST /act           → Send screenshot + UI tree, receive action
- *   POST /task/result   → Report task completion/failure
- *   GET  /health        → Check brain server status
- *
- * All calls have timeouts and retry logic to handle slow API responses.
  */
 object BrainClient {
 
     private const val BASE_URL = "http://localhost:8082"
-    private const val CONNECT_TIMEOUT = 5000   // 5 seconds
-    private const val READ_TIMEOUT = 90000     // 90 seconds (model can be slow)
+    private const val CONNECT_TIMEOUT = 5000
+    private const val READ_TIMEOUT = 90000
     private const val MAX_RETRIES = 3
 
-    // ─────────────────────────────────────────────────────
-    // GET /task/pending — Poll for new tasks
-    // ─────────────────────────────────────────────────────
     fun getPendingTask(): JSONObject? {
         return retryCall {
             val conn = createConnection("GET", "/task/pending")
@@ -44,9 +32,6 @@ object BrainClient {
         }
     }
 
-    // ─────────────────────────────────────────────────────
-    // POST /task/submit — Submit a new task
-    // ─────────────────────────────────────────────────────
     fun submitTask(task: String): Boolean {
         return retryCall(defaultValue = false) {
             val body = JSONObject().put("task", task)
@@ -60,9 +45,6 @@ object BrainClient {
         }
     }
 
-    // ─────────────────────────────────────────────────────
-    // POST /act — Core loop: send screenshot, get action
-    // ─────────────────────────────────────────────────────
     fun sendToBrain(
         goal: String,
         screenshotBase64: String,
@@ -93,9 +75,6 @@ object BrainClient {
         }
     }
 
-    // ─────────────────────────────────────────────────────
-    // POST /task/result — Report completion/failure
-    // ─────────────────────────────────────────────────────
     fun reportResult(taskId: Int, status: String, reason: String) {
         retryCall(defaultValue = Unit) {
             val body = JSONObject().apply {
@@ -112,9 +91,6 @@ object BrainClient {
         }
     }
 
-    // ─────────────────────────────────────────────────────
-    // GET /health — Check if brain server is running
-    // ─────────────────────────────────────────────────────
     fun checkHealth(): Boolean {
         return try {
             val conn = createConnection("GET", "/health", connectTimeout = 2000, readTimeout = 2000)
@@ -127,10 +103,6 @@ object BrainClient {
             false
         }
     }
-
-    // ─────────────────────────────────────────────────────
-    // Internal helpers
-    // ─────────────────────────────────────────────────────
 
     private fun createConnection(
         method: String,
@@ -176,7 +148,7 @@ object BrainClient {
             } catch (e: Exception) {
                 lastException = e
                 if (i < maxRetries - 1) {
-                    Thread.sleep((i + 1) * 1000L) // Exponential backoff: 1s, 2s, 3s
+                    Thread.sleep((i + 1) * 1000L)
                 }
             }
         }
