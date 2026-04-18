@@ -42,7 +42,9 @@ except ImportError:
 
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-NVIDIA_MODEL = "microsoft/phi-4-multimodal-instruct"
+# Model selection — change via env var or edit here
+# Options: llama-90b-vision (best), llama-11b-vision (fast), phi-4 (basic)
+NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "meta/llama-3.2-90b-vision-instruct")
 
 MAX_STEPS = 30
 MAX_TOKENS = 1024
