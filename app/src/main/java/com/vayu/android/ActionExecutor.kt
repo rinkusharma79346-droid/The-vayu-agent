@@ -8,20 +8,16 @@ import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONObject
 
-/**
- * Executes actions on the phone based on brain server responses.
- * Uses Accessibility Service APIs (NOT ADB) for all actions.
- */
 object ActionExecutor {
 
-    private const val DELAY_AFTER_TAP = 1000L
-    private const val DELAY_AFTER_LONG_PRESS = 1500L
-    private const val DELAY_AFTER_SWIPE = 1200L
-    private const val DELAY_AFTER_TYPE = 800L
-    private const val DELAY_AFTER_PRESS = 800L
-    private const val DELAY_AFTER_OPEN_APP = 3000L
-    private const val DELAY_AFTER_SCROLL = 1000L
-    private const val DEFAULT_SWIPE_DURATION = 500L
+    private const val DELAY_AFTER_TAP = 600L
+    private const val DELAY_AFTER_LONG_PRESS = 800L
+    private const val DELAY_AFTER_SWIPE = 700L
+    private const val DELAY_AFTER_TYPE = 500L
+    private const val DELAY_AFTER_PRESS = 500L
+    private const val DELAY_AFTER_OPEN_APP = 2000L
+    private const val DELAY_AFTER_SCROLL = 600L
+    private const val DEFAULT_SWIPE_DURATION = 400L
 
     fun execute(service: AccessibilityService, action: JSONObject): Long {
         val actionType = action.optString("action", "").uppercase()
@@ -39,21 +35,21 @@ object ActionExecutor {
             "WAIT" -> executeWait(action)
             "DONE" -> 0L
             "FAIL" -> 0L
-            else -> 500L
+            else -> 400L
         }
     }
 
     private fun executeTap(service: AccessibilityService, action: JSONObject): Long {
         val x = action.optInt("x", 540)
         val y = action.optInt("y", 960)
-        dispatchClick(service, x, y, 100L)
+        dispatchClick(service, x, y, 50L)
         return DELAY_AFTER_TAP
     }
 
     private fun executeLongPress(service: AccessibilityService, action: JSONObject): Long {
         val x = action.optInt("x", 540)
         val y = action.optInt("y", 960)
-        dispatchClick(service, x, y, 600L)
+        dispatchClick(service, x, y, 500L)
         return DELAY_AFTER_LONG_PRESS
     }
 
@@ -108,9 +104,9 @@ object ActionExecutor {
 
     private fun executeType(service: AccessibilityService, action: JSONObject): Long {
         val text = action.optString("text", "")
-        if (text.isEmpty()) return 300L
+        if (text.isEmpty()) return 200L
 
-        val rootNode = service.rootInActiveWindow ?: return 300L
+        val rootNode = service.rootInActiveWindow ?: return 200L
         val focusedNode = findFocusNode(rootNode)
 
         if (focusedNode != null && focusedNode.isEditable) {
@@ -128,7 +124,7 @@ object ActionExecutor {
 
     private fun executeOpenApp(service: AccessibilityService, action: JSONObject): Long {
         val packageName = action.optString("package", "")
-        if (packageName.isEmpty()) return 500L
+        if (packageName.isEmpty()) return 300L
 
         try {
             val pm = service.packageManager
@@ -138,14 +134,13 @@ object ActionExecutor {
                 service.startActivity(launchIntent)
             }
         } catch (e: Exception) {
-            // App not found
         }
 
         return DELAY_AFTER_OPEN_APP
     }
 
     private fun executeWait(action: JSONObject): Long {
-        return action.optLong("ms", 2000L)
+        return action.optLong("ms", 1500L)
     }
 
     private fun executeGlobalAction(service: AccessibilityService, action: Int, delay: Long): Long {
