@@ -2,30 +2,26 @@ package com.vayu.android
 
 import android.graphics.Bitmap
 import android.graphics.ColorSpace
+import android.hardware.HardwareBuffer
 import android.util.Base64
-import android.view.accessibility.AccessibilityEvent
 import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 
 /**
  * Handles screenshot capture, processing, and base64 encoding.
- *
- * CRITICAL FIX: The original repo tried to compress hardware bitmaps
- * directly, which crashes on API 30-32. This version copies to a
- * software bitmap (ARGB_8888) before compressing.
- *
- * Optimization: Downscales to 720p max dimension and uses 40% JPEG quality
- * to reduce data size and speed up API calls on mobile.
+ * Copies hardware bitmap to software bitmap before compressing (crash fix).
+ * Downscales to 720p max and uses 40% JPEG quality for speed.
  */
 object ScreenCapture {
 
-    private const val MAX_DIMENSION = 720       // Downscale to 720p for speed
-    private const val JPEG_QUALITY = 40          // 40% quality — good enough for AI, small size
+    private const val MAX_DIMENSION = 720
+    private const val JPEG_QUALITY = 40
 
     /**
-     * Process a screenshot from the Accessibility Service.
+     * Process a screenshot from HardwareBuffer.
      * Returns base64-encoded JPEG string (no data URI prefix).
      */
-    fun processScreenshot(hardwareBuffer: android.hardware.HardwareBuffer, colorSpace: ColorSpace?): String {
+    fun processScreenshot(hardwareBuffer: HardwareBuffer, colorSpace: ColorSpace?): String {
         // Step 1: Wrap hardware buffer
         val hardwareBitmap = Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace) ?: return ""
 
@@ -51,16 +47,12 @@ object ScreenCapture {
         return Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
     }
 
-    /**
-     * Downscale bitmap if either dimension exceeds MAX_DIMENSION.
-     * Maintains aspect ratio.
-     */
     private fun downscaleIfNeeded(bitmap: Bitmap): Bitmap {
         val w = bitmap.width
         val h = bitmap.height
 
         if (w <= MAX_DIMENSION && h <= MAX_DIMENSION) {
-            return bitmap // Already small enough
+            return bitmap
         }
 
         val ratio = minOf(MAX_DIMENSION.toFloat() / w, MAX_DIMENSION.toFloat() / h)
