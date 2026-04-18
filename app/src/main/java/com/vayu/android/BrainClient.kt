@@ -33,16 +33,35 @@ object BrainClient {
     }
 
     fun submitTask(task: String): Boolean {
-        return retryCall(defaultValue = false) {
-            val body = JSONObject().put("task", task)
-            val conn = createConnection("POST", "/task/submit")
-            try {
-                writeBody(conn, body.toString())
-                conn.responseCode == 200
-            } finally {
-                conn.disconnect()
-            }
-        } ?: false
+        // MUST run on background thread — Android throws NetworkOnMainThreadException
+        return try {
+            val latch = java.util.concurrent.CountDownLatch(1)
+            val result = arrayOf(false)
+            Thread {
+                try {
+                    val success = retryCall(defaultValue = false) {
+                        val body = JSONObject().put("task", task)
+                        val conn = createConnection("POST", "/task/submit")
+                        try {
+                            writeBody(conn, body.toString())
+                            conn.responseCode == 200
+                        } finally {
+                            conn.disconnect()
+                        }
+                    } ?: false
+                    result[0] = success
+                } catch (e: Exception) {
+                    android.util.Log.e("VAYU", "submitTask error: ${e.message}")
+                } finally {
+                    latch.countDown()
+                }
+            }.start()
+            latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            result[0]
+        } catch (e: Exception) {
+            android.util.Log.e("VAYU", "submitTask latch error: ${e.message}")
+            false
+        }
     }
 
     fun sendToBrain(
